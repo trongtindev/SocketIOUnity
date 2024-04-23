@@ -5,6 +5,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using SocketIOClient.Extensions;
 using SocketIOClient.Messages;
+using System.Linq;
+
 
 #if DEBUG
 using System.Diagnostics;
@@ -16,8 +18,8 @@ namespace SocketIOClient.Transport
     {
         protected BaseTransport(TransportOptions options)
         {
-            Options = options ?? throw new ArgumentNullException(nameof(options));
-            _messageQueue = new Queue<IMessage>();
+            this.Options = options ?? throw new ArgumentNullException(nameof(options));
+            this._messageQueue = new Queue<IMessage>();
         }
 
         protected const string DirtyMessage = "Invalid object's current state, may need to create a new object.";
@@ -37,8 +39,8 @@ namespace SocketIOClient.Transport
 
         public async Task SendAsync(IMessage msg, CancellationToken cancellationToken)
         {
-            msg.EIO = Options.EIO;
-            msg.Protocol = Protocol;
+            msg.EIO = this.Options.EIO;
+            msg.Protocol = this.Protocol;
             var payload = new Payload
             {
                 Text = msg.Write()
@@ -47,38 +49,38 @@ namespace SocketIOClient.Transport
             {
                 payload.Bytes = msg.OutgoingBytes;
             }
-            await SendAsync(payload, cancellationToken).ConfigureAwait(false);
+            await this.SendAsync(payload, cancellationToken).ConfigureAwait(false);
         }
 
         protected virtual async Task OpenAsync(OpenedMessage msg)
         {
-            OpenedMessage = msg;
-            if (Options.EIO == EngineIO.V3 && string.IsNullOrEmpty(Namespace))
+            this.OpenedMessage = msg;
+            if (this.Options.EIO == EngineIO.V3 && string.IsNullOrEmpty(this.Namespace))
             {
                 return;
             }
             var connectMsg = new ConnectedMessage
             {
-                Namespace = Namespace,
-                EIO = Options.EIO,
-                Query = Options.Query,
+                Namespace = this.Namespace,
+                EIO = this.Options.EIO,
+                Query = this.Options.Query,
             };
-            if (Options.EIO == EngineIO.V4)
+            if (this.Options.EIO == EngineIO.V4)
             {
-                connectMsg.AuthJsonStr = Options.Auth;
+                connectMsg.AuthJsonStr = this.Options.Auth;
             }
 
-            for (int i = 1; i <= 3; i++)
+            for (var i = 1; i <= 3; i++)
             {
                 try
                 {
-                    await SendAsync(connectMsg, CancellationToken.None).ConfigureAwait(false);
+                    await this.SendAsync(connectMsg, CancellationToken.None).ConfigureAwait(false);
                     break;
                 }
                 catch (Exception e)
                 {
                     if (i == 3)
-                        OnError.TryInvoke(e);
+                        this.OnError.TryInvoke(e);
                     else
                         await Task.Delay(TimeSpan.FromMilliseconds(Math.Pow(2, i) * 100));
                 }
@@ -92,23 +94,23 @@ namespace SocketIOClient.Transport
             {
                 while (!cancellationToken.IsCancellationRequested)
                 {
-                    await Task.Delay(OpenedMessage.PingInterval, cancellationToken);
+                    await Task.Delay(this.OpenedMessage.PingInterval, cancellationToken);
                     try
                     {
                         var ping = new PingMessage();
                         // _logger.LogDebug($"[Ping] Sending");
-                        using (var cts = new CancellationTokenSource(OpenedMessage.PingTimeout))
+                        using (var cts = new CancellationTokenSource(this.OpenedMessage.PingTimeout))
                         {
-                            await SendAsync(ping, cts.Token).ConfigureAwait(false);
+                            await this.SendAsync(ping, cts.Token).ConfigureAwait(false);
                         }
                         // _logger.LogDebug($"[Ping] Has been sent");
-                        _pingTime = DateTime.Now;
-                        OnReceived.TryInvoke(ping);
+                        this._pingTime = DateTime.Now;
+                        this.OnReceived.TryInvoke(ping);
                     }
                     catch (Exception e)
                     {
                         // _logger.LogDebug($"[Ping] Failed to send, {e.Message}");
-                        OnError.TryInvoke(e);
+                        this.OnError.TryInvoke(e);
                         break;
                     }
                 }
@@ -124,11 +126,11 @@ namespace SocketIOClient.Transport
 
         public virtual void Dispose()
         {
-            _messageQueue.Clear();
-            if (PingTokenSource != null)
+            this._messageQueue.Clear();
+            if (this.PingTokenSource != null)
             {
-                PingTokenSource.Cancel();
-                PingTokenSource.Dispose();
+                this.PingTokenSource.Cancel();
+                this.PingTokenSource.Dispose();
             }
         }
 
@@ -138,51 +140,51 @@ namespace SocketIOClient.Transport
         {
             // TODO: refactor
 #if DEBUG
-            Debug.WriteLine($"[{Protocol}⬇] {text}");
+            Debug.WriteLine($"[BaseTransport] OnTextReceived() {text}");
 #endif
-            var msg = MessageFactory.CreateMessage(Options.EIO, text);
+            var msg = MessageFactory.CreateMessage(this.Options.EIO, text);
             if (msg == null)
             {
                 return;
             }
-            msg.Protocol = Protocol;
+            msg.Protocol = this.Protocol;
             if (msg.BinaryCount > 0)
             {
                 msg.IncomingBytes = new List<byte[]>(msg.BinaryCount);
-                _messageQueue.Enqueue(msg);
+                this._messageQueue.Enqueue(msg);
                 return;
             }
             if (msg.Type == MessageType.Opened)
             {
-                await OpenAsync(msg as OpenedMessage).ConfigureAwait(false);
+                await this.OpenAsync(msg as OpenedMessage).ConfigureAwait(false);
             }
 
-            if (Options.EIO == EngineIO.V3)
+            if (this.Options.EIO == EngineIO.V3)
             {
                 if (msg.Type == MessageType.Connected)
                 {
-                    int ms = 0;
-                    while (OpenedMessage is null)
+                    var ms = 0;
+                    while (this.OpenedMessage is null)
                     {
                         await Task.Delay(10);
                         ms += 10;
-                        if (ms > Options.ConnectionTimeout.TotalMilliseconds)
+                        if (ms > this.Options.ConnectionTimeout.TotalMilliseconds)
                         {
-                            OnError.TryInvoke(new TimeoutException());
+                            this.OnError.TryInvoke(new TimeoutException());
                             return;
                         }
                     }
 
                     var connectMsg = msg as ConnectedMessage;
-                    connectMsg.Sid = OpenedMessage.Sid;
-                    if ((string.IsNullOrEmpty(Namespace) && string.IsNullOrEmpty(connectMsg.Namespace)) || connectMsg.Namespace == Namespace)
+                    connectMsg.Sid = this.OpenedMessage.Sid;
+                    if ((string.IsNullOrEmpty(this.Namespace) && string.IsNullOrEmpty(connectMsg.Namespace)) || connectMsg.Namespace == this.Namespace)
                     {
-                        if (PingTokenSource != null)
+                        if (this.PingTokenSource != null)
                         {
-                            PingTokenSource.Cancel();
+                            this.PingTokenSource.Cancel();
                         }
-                        PingTokenSource = new CancellationTokenSource();
-                        StartPing(PingTokenSource.Token);
+                        this.PingTokenSource = new CancellationTokenSource();
+                        this.StartPing(this.PingTokenSource.Token);
                     }
                     else
                     {
@@ -192,28 +194,28 @@ namespace SocketIOClient.Transport
                 else if (msg.Type == MessageType.Pong)
                 {
                     var pong = msg as PongMessage;
-                    pong.Duration = DateTime.Now - _pingTime;
+                    pong.Duration = DateTime.Now - this._pingTime;
                 }
             }
 
-            OnReceived.TryInvoke(msg);
+            this.OnReceived.TryInvoke(msg);
 
             if (msg.Type == MessageType.Ping)
             {
-                _pingTime = DateTime.Now;
+                this._pingTime = DateTime.Now;
                 try
                 {
-                    await SendAsync(new PongMessage(), CancellationToken.None).ConfigureAwait(false);
-                    OnReceived.TryInvoke(new PongMessage
+                    await this.SendAsync(new PongMessage(), CancellationToken.None).ConfigureAwait(false);
+                    this.OnReceived.TryInvoke(new PongMessage
                     {
-                        EIO = Options.EIO,
-                        Protocol = Protocol,
-                        Duration = DateTime.Now - _pingTime
+                        EIO = this.Options.EIO,
+                        Protocol = this.Protocol,
+                        Duration = DateTime.Now - this._pingTime
                     });
                 }
                 catch (Exception e)
                 {
-                    OnError.TryInvoke(e);
+                    this.OnError.TryInvoke(e);
                 }
             }
         }
@@ -221,16 +223,16 @@ namespace SocketIOClient.Transport
         protected void OnBinaryReceived(byte[] bytes)
         {
 #if DEBUG
-            Debug.WriteLine($"[{Protocol}⬇]0️⃣1️⃣0️⃣1️⃣");
+            Debug.WriteLine($"[BaseTransport] OnBinaryReceived() {bytes.Count()}");
 #endif
-            if (_messageQueue.Count > 0)
+            if (this._messageQueue.Count > 0)
             {
-                var msg = _messageQueue.Peek();
+                var msg = this._messageQueue.Peek();
                 msg.IncomingBytes.Add(bytes);
                 if (msg.IncomingBytes.Count == msg.BinaryCount)
                 {
-                    OnReceived.TryInvoke(msg);
-                    _messageQueue.Dequeue();
+                    this.OnReceived.TryInvoke(msg);
+                    this._messageQueue.Dequeue();
                 }
             }
         }

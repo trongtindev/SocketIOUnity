@@ -15,9 +15,9 @@ namespace SocketIOClient.Transport.WebSockets
     {
         public WebSocketTransport(TransportOptions options, IClientWebSocket ws) : base(options)
         {
-            _ws = ws;
-            _sendLock = new SemaphoreSlim(1, 1);
-            _listenCancellation = new CancellationTokenSource();
+            this._ws = ws;
+            this._sendLock = new SemaphoreSlim(1, 1);
+            this._listenCancellation = new CancellationTokenSource();
         }
 
         protected override TransportProtocol Protocol => TransportProtocol.WebSocket;
@@ -31,26 +31,26 @@ namespace SocketIOClient.Transport.WebSockets
 
         private async Task SendAsync(TransportMessageType type, byte[] bytes, CancellationToken cancellationToken)
         {
-            if (type == TransportMessageType.Binary && Options.EIO == EngineIO.V3)
+            if (type == TransportMessageType.Binary && this.Options.EIO == EngineIO.V3)
             {
-                byte[] buffer = new byte[bytes.Length + 1];
+                var buffer = new byte[bytes.Length + 1];
                 buffer[0] = 4;
                 Buffer.BlockCopy(bytes, 0, buffer, 1, bytes.Length);
                 bytes = buffer;
             }
-            int pages = (int)Math.Ceiling(bytes.Length * 1.0 / _sendChunkSize);
-            for (int i = 0; i < pages; i++)
+            var pages = (int)Math.Ceiling(bytes.Length * 1.0 / this._sendChunkSize);
+            for (var i = 0; i < pages; i++)
             {
-                int offset = i * _sendChunkSize;
-                int length = _sendChunkSize;
+                var offset = i * this._sendChunkSize;
+                var length = this._sendChunkSize;
                 if (offset + length > bytes.Length)
                 {
                     length = bytes.Length - offset;
                 }
-                byte[] subBuffer = new byte[length];
+                var subBuffer = new byte[length];
                 Buffer.BlockCopy(bytes, offset, subBuffer, 0, subBuffer.Length);
-                bool endOfMessage = pages - 1 == i;
-                await _ws.SendAsync(subBuffer, type, endOfMessage, cancellationToken).ConfigureAwait(false);
+                var endOfMessage = pages - 1 == i;
+                await this._ws.SendAsync(subBuffer, type, endOfMessage, cancellationToken).ConfigureAwait(false);
             }
         }
 
@@ -60,15 +60,15 @@ namespace SocketIOClient.Transport.WebSockets
             {
                 while (!cancellationToken.IsCancellationRequested)
                 {
-                    var binary = new byte[_receiveChunkSize];
-                    int count = 0;
+                    var binary = new byte[this._receiveChunkSize];
+                    var count = 0;
                     WebSocketReceiveResult result = null;
 
-                    while (_ws.State == WebSocketState.Open)
+                    while (this._ws.State == WebSocketState.Open)
                     {
                         try
                         {
-                            result = await _ws.ReceiveAsync(_receiveChunkSize, cancellationToken).ConfigureAwait(false);
+                            result = await this._ws.ReceiveAsync(this._receiveChunkSize, cancellationToken).ConfigureAwait(false);
 
                             // resize
                             if (binary.Length - count < result.Count)
@@ -84,9 +84,9 @@ namespace SocketIOClient.Transport.WebSockets
                         }
                         catch (Exception e)
                         {
-                            OnError.TryInvoke(e);
+                            this.OnError.TryInvoke(e);
 #if DEBUG
-                            Debug.WriteLine($"[{Protocol}❌] {e}");
+                            Debug.WriteLine($"[WebSocketTransport] Exception: {e.Message}");
 #endif
                             return;
                         }
@@ -102,12 +102,12 @@ namespace SocketIOClient.Transport.WebSockets
                         switch (result.MessageType)
                         {
                             case TransportMessageType.Text:
-                                string text = Encoding.UTF8.GetString(binary, 0, count);
-                                await OnTextReceived(text);
+                                var text = Encoding.UTF8.GetString(binary, 0, count);
+                                await this.OnTextReceived(text);
                                 break;
                             case TransportMessageType.Binary:
                                 byte[] bytes;
-                                if (Options.EIO == EngineIO.V3)
+                                if (this.Options.EIO == EngineIO.V3)
                                 {
                                     bytes = new byte[count - 1];
                                     Buffer.BlockCopy(binary, 1, bytes, 0, bytes.Length);
@@ -117,18 +117,18 @@ namespace SocketIOClient.Transport.WebSockets
                                     bytes = new byte[count];
                                     Buffer.BlockCopy(binary, 0, bytes, 0, bytes.Length);
                                 }
-                                OnBinaryReceived(bytes);
+                                this.OnBinaryReceived(bytes);
                                 break;
                             case TransportMessageType.Close:
-                                OnError.TryInvoke(new TransportException("Received a Close message"));
+                                this.OnError.TryInvoke(new TransportException("Received a Close message"));
                                 break;
                         }
                     }
                     catch (Exception e)
                     {
-                        OnError.TryInvoke(e);
+                        this.OnError.TryInvoke(e);
 #if DEBUG
-                        Debug.WriteLine($"[{Protocol}❌] {e}");
+                        Debug.WriteLine($"[WebSocketTransport] Exception: {e.Message}");
 #endif
                         break;
                     }
@@ -138,52 +138,52 @@ namespace SocketIOClient.Transport.WebSockets
 
         public override async Task ConnectAsync(Uri uri, CancellationToken cancellationToken)
         {
-            if (_dirty)
+            if (this._dirty)
                 throw new InvalidOperationException(DirtyMessage);
-            _dirty = true;
+            this._dirty = true;
             try
             {
-                await _ws.ConnectAsync(uri, cancellationToken).ConfigureAwait(false);
+                await this._ws.ConnectAsync(uri, cancellationToken).ConfigureAwait(false);
             }
             catch (Exception e)
             {
                 throw new TransportException($"Could not connect to '{uri}'", e);
             }
-            Listen(_listenCancellation.Token);
+            this.Listen(this._listenCancellation.Token);
         }
 
         public override async Task DisconnectAsync(CancellationToken cancellationToken)
         {
-            await _ws.DisconnectAsync(cancellationToken).ConfigureAwait(false);
+            await this._ws.DisconnectAsync(cancellationToken).ConfigureAwait(false);
         }
 
         public override async Task SendAsync(Payload payload, CancellationToken cancellationToken)
         {
             try
             {
-                await _sendLock.WaitAsync(cancellationToken).ConfigureAwait(false);
+                await this._sendLock.WaitAsync(cancellationToken).ConfigureAwait(false);
                 if (!string.IsNullOrEmpty(payload.Text))
                 {
-                    byte[] bytes = Encoding.UTF8.GetBytes(payload.Text);
-                    await SendAsync(TransportMessageType.Text, bytes, cancellationToken);
+                    var bytes = Encoding.UTF8.GetBytes(payload.Text);
+                    await this.SendAsync(TransportMessageType.Text, bytes, cancellationToken);
 #if DEBUG
-                    Debug.WriteLine($"[WebSocket⬆] {payload.Text}");
+                    Debug.WriteLine($"[WebSocketTransport] SendAsync() {payload.Text}");
 #endif
                 }
                 if (payload.Bytes != null)
                 {
                     foreach (var item in payload.Bytes)
                     {
-                        await SendAsync(TransportMessageType.Binary, item, cancellationToken).ConfigureAwait(false);
+                        await this.SendAsync(TransportMessageType.Binary, item, cancellationToken).ConfigureAwait(false);
 #if DEBUG
-                        Debug.WriteLine($"[WebSocket⬆] {Convert.ToBase64String(item)}");
+                        Debug.WriteLine($"[WebSocketTransport] SendAsync() {Convert.ToBase64String(item)}");
 #endif
                     }
                 }
             }
             finally
             {
-               _sendLock.Release();
+                this._sendLock.Release();
             }
         }
 
@@ -191,12 +191,12 @@ namespace SocketIOClient.Transport.WebSockets
         {
             try
             {
-                await _sendLock.WaitAsync().ConfigureAwait(false);
-                _sendChunkSize = size;
+                await this._sendLock.WaitAsync().ConfigureAwait(false);
+                this._sendChunkSize = size;
             }
             finally
             {
-                _sendLock.Release();
+                this._sendLock.Release();
             }
         }
 
@@ -204,37 +204,37 @@ namespace SocketIOClient.Transport.WebSockets
         {
             try
             {
-                await _sendLock.WaitAsync().ConfigureAwait(false);
-                _sendChunkSize = size;
+                await this._sendLock.WaitAsync().ConfigureAwait(false);
+                this._sendChunkSize = size;
             }
             finally
             {
-                _sendLock.Release();
+                this._sendLock.Release();
             }
         }
 
         public override void AddHeader(string key, string val)
         {
-            if (_dirty)
+            if (this._dirty)
             {
                 throw new InvalidOperationException("Unable to add header after connecting");
             }
-            _ws.AddHeader(key, val);
+            this._ws.AddHeader(key, val);
         }
 
         public override void SetProxy(IWebProxy proxy)
         {
-            if (_dirty)
+            if (this._dirty)
             {
                 throw new InvalidOperationException("Unable to set proxy after connecting");
             }
-            _ws.SetProxy(proxy);
+            this._ws.SetProxy(proxy);
         }
 
         public override void Dispose()
         {
             base.Dispose();
-            _sendLock.Dispose();
+            this._sendLock.Dispose();
         }
     }
 }
