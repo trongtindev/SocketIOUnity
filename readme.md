@@ -9,10 +9,11 @@ Supports socket.io server v2/v3/v4, and has implemented http polling and websock
 
 ## Supported Platforms
 
+💻 PC/Mac, 🍎 iOS, 🤖 Android and more!
+
 ## Usage
 
 Check the 'Samples~' folder and [socket.io-client-csharp](https://github.com/doghappy/socket.io-client-csharp) repo for more usage info.
-💻 PC/Mac, 🍎 iOS, 🤖 Android
 
 ### Initiation:
 
